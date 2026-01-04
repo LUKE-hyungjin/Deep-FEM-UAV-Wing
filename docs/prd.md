@@ -250,10 +250,11 @@
 - [x] (환경 이슈 대응) 기존 `wing_viz.glb` 복구 스크립트: `scripts/repair_geometry_glb.py`
 
 ### 2단계 — Meshing(Gmsh) (미진행)
-- [ ] `wing.stl` → `wing.msh`(테트라 볼륨 메쉬) 생성
-- [ ] `boundary_sets.json` 생성: `NROOT`, `SURF_ALL`, `SURF_UPPER` + 면적 통계/검증
-- [ ] `mesh_report.json` 생성(시간/품질/실패 사유)
-- [ ] (시각 디버그) `surf_sets.glb` 생성(Upper/Root 분리 결과 색상 확인)
+### 2단계 — Meshing(Gmsh) (완료)
+- [x] `wing.stl` → `wing.msh`(테트라 볼륨 메쉬) 생성
+- [x] `boundary_sets.json` 생성: `NROOT`, `SURF_ALL`, `SURF_UPPER` + 면적 통계/검증
+- [x] `mesh_report.json` 생성(시간/품질/실패 사유)
+- [x] (시각 디버그) `surf_sets.glb` 생성(Upper/Root 분리 결과 색상 확인)
 
 ### 3단계 — FEM(CalculiX) + Postprocess (미진행)
 - [ ] `.inp` 생성(등가 절점 하중 `*CLOAD`)

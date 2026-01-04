@@ -14,6 +14,7 @@ if str(SRC_DIR) not in sys.path:
 
 GEOMETRY_DIR = PROJECT_ROOT / "data" / "raw" / "geometry"
 MESH_DIR = PROJECT_ROOT / "data" / "raw" / "mesh"
+FEM_DIR = PROJECT_ROOT / "data" / "raw" / "fem"
 PARAMS_CSV = GEOMETRY_DIR / "params.csv"
 
 
@@ -76,12 +77,29 @@ def _format_case_log(case_id: str) -> str:
 
 def handle_refresh():
     rows = _list_success_cases()
-    choices = [(_case_label(r), (r.get("case_id") or "").strip()) for r in rows if (r.get("case_id") or "").strip()]
+    # Sort by case_id for consistent ordering
+    rows.sort(key=lambda r: (r.get("case_id") or ""))
+    
+    choices = []
+    for idx, r in enumerate(rows, start=1):
+        label = f"{idx:03d} | {_case_label(r)}"
+        value = (r.get("case_id") or "").strip()
+        if value:
+            choices.append((label, value))
+            
     first_case_id = choices[0][1] if choices else None
     return gr.update(choices=choices, value=first_case_id)
 
 
-def handle_select_case(case_id: str | None, preview_mode: str):
+def handle_slider_change(case_num: int, choices):
+    target_id = f"{case_num:03d}"
+    # Check if target_id exists in loaded choices
+    # choices is list of (label, value) or just values. Gradio Dropdown choices usually internal.
+    # We will rely on the dropdown update to validate.
+    return target_id
+
+
+def handle_select_case(case_id: str | None, preview_mode: str, show_pressure_arrows: bool):
     if not case_id:
         return None, None, "선택된 case_id가 없습니다."
 
@@ -89,6 +107,8 @@ def handle_select_case(case_id: str | None, preview_mode: str):
     glb_path = case_dir / "wing_viz.glb"
     stl_path = case_dir / "wing.stl"
     surf_sets_glb = MESH_DIR / case_id / "surf_sets.glb"
+    fem_result_glb = FEM_DIR / case_id / "wing_result.glb"
+    fem_result_arrows_glb = FEM_DIR / case_id / "wing_result_arrows.glb"
 
     if not glb_path.exists() or not stl_path.exists():
         missing: list[str] = []
@@ -109,6 +129,18 @@ def handle_select_case(case_id: str | None, preview_mode: str):
                 + _format_case_log(case_id),
             )
         preview_path = surf_sets_glb
+    elif preview_mode == "FEM Result (wing_result.glb)":
+        target = fem_result_arrows_glb if show_pressure_arrows else fem_result_glb
+        if not target.exists():
+            return (
+                None,
+                str(stl_path),
+                "FEM Result를 선택했지만 `data/raw/fem/{case_id}/wing_result.glb`가 없습니다.\n"
+                "해결: `python scripts/generate_fem_dataset.py --limit 1`로 테스트하거나, 전체는 `--limit 0`.\n"
+                "- pressure arrows 토글이 켜져있다면 `wing_result_arrows.glb`가 생성돼야 합니다.\n\n"
+                + _format_case_log(case_id),
+            )
+        preview_path = target
     else:
         preview_path = glb_path
 
@@ -141,15 +173,20 @@ with gr.Blocks(title="Deep-FEM-UAV-Wing (Week 1)") as demo:
     with gr.Row():
         with gr.Column(scale=1):
             case_dropdown = gr.Dropdown(
-                label="case_id (success only)",
+                label="Select Case (Success only)",
                 choices=[],
                 value=None,
                 interactive=True,
             )
             preview_mode = gr.Radio(
-                choices=["Geometry (wing_viz.glb)", "Meshing Debug (surf_sets.glb)"],
-                value="Meshing Debug (surf_sets.glb)",
+                choices=["Geometry (wing_viz.glb)", "Meshing Debug (surf_sets.glb)", "FEM Result (wing_result.glb)"],
+                value="FEM Result (wing_result.glb)",
                 label="Preview Mode",
+                interactive=True,
+            )
+            show_pressure_arrows = gr.Checkbox(
+                label="Show Pressure Arrows (sampled)",
+                value=False,
                 interactive=True,
             )
             refresh_btn = gr.Button("Refresh list", variant="secondary")
@@ -159,12 +196,23 @@ with gr.Blocks(title="Deep-FEM-UAV-Wing (Week 1)") as demo:
             stl_file = gr.File(label="Download STL")
             log = gr.Textbox(label="Log", lines=16)
 
+    def _get_case_id_by_index(index_1based: int) -> str | None:
+        rows = _list_success_cases()
+        # Sort by case_id to match the sorted dropdown list
+        rows.sort(key=lambda r: (r.get("case_id") or ""))
+        
+        idx = int(index_1based) - 1
+        if 0 <= idx < len(rows):
+            return (rows[idx].get("case_id") or "").strip()
+        return None
+
     refresh_btn.click(fn=handle_refresh, inputs=None, outputs=[case_dropdown])
-    case_dropdown.change(fn=handle_select_case, inputs=[case_dropdown, preview_mode], outputs=[model, stl_file, log])
-    preview_mode.change(fn=handle_select_case, inputs=[case_dropdown, preview_mode], outputs=[model, stl_file, log])
+    case_dropdown.change(fn=handle_select_case, inputs=[case_dropdown, preview_mode, show_pressure_arrows], outputs=[model, stl_file, log])
+    preview_mode.change(fn=handle_select_case, inputs=[case_dropdown, preview_mode, show_pressure_arrows], outputs=[model, stl_file, log])
+    show_pressure_arrows.change(fn=handle_select_case, inputs=[case_dropdown, preview_mode, show_pressure_arrows], outputs=[model, stl_file, log])
 
     demo.load(fn=handle_refresh, inputs=None, outputs=[case_dropdown]).then(
-        fn=handle_select_case, inputs=[case_dropdown, preview_mode], outputs=[model, stl_file, log]
+        fn=handle_select_case, inputs=[case_dropdown, preview_mode, show_pressure_arrows], outputs=[model, stl_file, log]
     )
 
 

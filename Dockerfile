@@ -33,3 +33,4 @@ ENV PYVISTA_USE_IPYVTK=true
 # 7. 실행 명령 (Gradio 앱 실행)
 CMD ["python", "app.py"]
 
+

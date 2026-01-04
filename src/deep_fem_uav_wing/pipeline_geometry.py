@@ -22,6 +22,7 @@ def get_or_build_geometry(
     params: WingParams,
     input_stl_path: Path | None = None,
     force_rebuild: bool = False,
+    forced_case_id: str | None = None,
 ) -> tuple[str, dict[str, Path], StepReport, str]:
     """
     Returns (case_id, artifacts, report, logs).
@@ -32,7 +33,11 @@ def get_or_build_geometry(
 
     # 1) Prepare case + wing.stl + params/report
     case_id, artifacts, report, logs = prepare_geometry_case(
-        paths=paths, params=params, input_stl_path=input_stl_path, force_rebuild=force_rebuild
+        paths=paths,
+        params=params,
+        input_stl_path=input_stl_path,
+        force_rebuild=force_rebuild,
+        forced_case_id=forced_case_id,
     )
     if report.status != "success":
         return case_id, artifacts, report, logs

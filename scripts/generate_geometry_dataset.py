@@ -113,8 +113,14 @@ def main() -> int:
     for i in range(args.count):
         params = sample_params(rng, ranges)
 
+        # Force case_id to be sequential (001..200) for better readability
+        forced_id = f"{i + 1:03d}"
+
         case_id, artifacts, report, logs = get_or_build_geometry(
-            project_root=PROJECT_ROOT, params=params, force_rebuild=args.require_blender
+            project_root=PROJECT_ROOT,
+            params=params,
+            force_rebuild=args.require_blender,
+            forced_case_id=forced_id,
         )
         status = report.status
         failure_reason = report.failure_reason or ""

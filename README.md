@@ -77,11 +77,36 @@ python scripts/generate_mesh_dataset.py --limit 0
 
 - 산출물: `data/raw/mesh/{case_id}/wing.msh`, `boundary_sets.json`, `mesh_report.json`, `surf_sets.glb`(Upper/Root 디버그 시각화)
 
+### 2-4) 3단계 FEM(CalculiX) + Postprocess 배치 생성(선택)
+
+`wing.msh`와 `boundary_sets.json`을 이용해 CalculiX로 선형 정적 해석을 실행하고, 표면 결과(`surface_results.npz`) 및 결과 GLB(`wing_result.glb`)를 생성합니다.
+
+> 사전 준비(권장: Homebrew):
+> - `ccx` (CalculiX)
+> - (선택) `ccx2paraview`가 있으면 후처리가 더 안정적입니다. 없으면 `.frd`를 직접 파싱하는 폴백을 사용합니다.
+
+```bash
+brew tap costerwi/homebrew-calculix
+brew install calculix-ccx calculix-cgx
+# Homebrew는 `ccx` 대신 버전이 붙은 바이너리(`ccx_2.22` 등)를 설치할 수 있습니다.
+ls -la "$(brew --prefix calculix-ccx)/bin/" | grep ccx
+"$(brew --prefix calculix-ccx)/bin/ccx_"* -v
+```
+
+```bash
+python scripts/generate_fem_dataset.py --limit 0 --pressure 5000
+```
+
+- 산출물: `data/raw/fem/{case_id}/{case_id}.inp`, `{case_id}.frd`, `surface_results.npz`, `wing_result.glb`, `fem_report.json`
+
 ### 2-3) 생성 결과 확인(Gradio 뷰어)
 
 ```bash
 python app.py
 ```
+
+- `Preview Mode`에서 **FEM Result (wing_result.glb)** 를 선택하면 `data/raw/fem/{case_id}/wing_result.glb`를 바로 확인할 수 있습니다.
+- **Show Pressure Arrows**를 켜면 `SURF_UPPER`에서 샘플링한 압력 방향 화살표(기본 200개)가 함께 표시됩니다(`wing_result_arrows.glb`).
 
 ### 3) Blender 필수 모드(폴백 금지)
 

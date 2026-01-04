@@ -519,6 +519,7 @@ def run_meshing_case(
     mesh_dir: Path,
     y_tol: float = 1e-4,
     nz_min: float = 0.2,
+    mesh_size_factor: float = 0.1,
 ) -> tuple[bool, dict, str]:
     """
     Creates:
@@ -542,7 +543,11 @@ def run_meshing_case(
         surf_sets_glb=case_mesh_dir / "surf_sets.glb",
     )
 
-    ok, msg, stdout_tail, stderr_tail = run_gmsh_tetra(stl_path=stl_path, out_msh_path=artifacts.wing_msh)
+    ok, msg, stdout_tail, stderr_tail = run_gmsh_tetra(
+        stl_path=stl_path,
+        out_msh_path=artifacts.wing_msh,
+        mesh_size_factor=mesh_size_factor,
+    )
     if not ok:
         elapsed_ms = int((time.perf_counter() - start) * 1000)
         report = {

@@ -23,6 +23,14 @@ class Paths:
     def geometry_dir(self) -> Path:
         return self.raw_dir / "geometry"
 
+    @property
+    def mesh_dir(self) -> Path:
+        return self.raw_dir / "mesh"
+
+    @property
+    def fem_dir(self) -> Path:
+        return self.raw_dir / "fem"
+
 
 def get_paths(project_root: Path) -> Paths:
     return Paths(project_root=project_root)

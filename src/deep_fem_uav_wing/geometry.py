@@ -113,9 +113,13 @@ def prepare_geometry_case(
     params: WingParams,
     input_stl_path: Path | None,
     force_rebuild: bool = False,
+    forced_case_id: str | None = None,
 ) -> tuple[str, dict[str, Path], StepReport, str]:
     start = time.perf_counter()
-    case_id = compute_case_id(params=params, pipeline_version=PIPELINE_VERSION)
+    if forced_case_id:
+        case_id = forced_case_id
+    else:
+        case_id = compute_case_id(params=params, pipeline_version=PIPELINE_VERSION)
 
     case_dir = get_geometry_case_dir(paths=paths, case_id=case_id)
     _ensure_dir(case_dir)
