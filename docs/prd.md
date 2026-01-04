@@ -134,6 +134,9 @@
     - Model3D: Geometry / FEM / AI / Error
     - File: STL/GLB/NPZ 다운로드
     - Textbox: 로그/실행 시간/실패 사유
+- v0(Week 1) 구현 메모(뷰어 모드):
+  - 이번 단계에서는 “생성(Generate)”은 **Blender 배치 스크립트**로 수행하고, Gradio는 **pre-computed 결과를 선택/확인하는 뷰어**로 동작한다.
+  - 케이스 목록은 `data/raw/geometry/params.csv(status=success)`에서 로드하며, 선택한 `case_id`의 `wing_viz.glb`(3D 미리보기) + `wing.stl`(다운로드) + `build_report.json` 로그를 표시한다.
 - 캐시:
   - 동일 파라미터는 동일 `case_id`로 캐시 재사용
  - 진행 상태:
@@ -234,6 +237,50 @@
 - Week 3: GNN 학습/추론 + Gradio side-by-side + error map + metrics 완성
 
 ---
+
+## 7-1) 진행 현황 체크리스트(구현 기준)
+
+### 1단계 — Geometry + Viz + Viewer (완료)
+- [x] Blender(headless)로 파라메트릭 `wing.stl` 생성(배치 생성 지원)
+- [x] `case_id` 기반 캐시/산출물 폴더 구조 고정(`data/raw/geometry/{case_id}/...`)
+- [x] `params.json` / `build_report.json` 생성 및 로그 기록
+- [x] STL → **바이너리 GLB**(`wing_viz.glb`) 생성
+- [x] 인덱스 파일 생성/갱신: `data/raw/geometry/params.csv`, `data/raw/manifest.json`
+- [x] Gradio는 **뷰어 모드**: 케이스 선택 → 3D 미리보기(GLB) + STL 다운로드 + 로그 확인
+- [x] (환경 이슈 대응) 기존 `wing_viz.glb` 복구 스크립트: `scripts/repair_geometry_glb.py`
+
+### 2단계 — Meshing(Gmsh) (미진행)
+- [ ] `wing.stl` → `wing.msh`(테트라 볼륨 메쉬) 생성
+- [ ] `boundary_sets.json` 생성: `NROOT`, `SURF_ALL`, `SURF_UPPER` + 면적 통계/검증
+- [ ] `mesh_report.json` 생성(시간/품질/실패 사유)
+
+### 3단계 — FEM(CalculiX) + Postprocess (미진행)
+- [ ] `.inp` 생성(등가 절점 하중 `*CLOAD`)
+- [ ] `ccx` 실행 → `.frd` 산출
+- [ ] 표면 결과 추출: `surface_results.npz`(pos/normal/stress_vm/disp/loss_mask)
+- [ ] 결과 시각화: `wing_result.glb`(버텍스 컬러 기반)
+
+### 4단계 — Dataset 누적/검증 (미진행)
+- [ ] 최소 200 solved 케이스 누적(`status=success`), 실패 케이스도 `failure_reason` 구조적으로 기록
+- [ ] 품질 검증 체크리스트 자동화: Root 노드 수, Upper 면적 비율, nan/inf 결과 검출, 스케일 sanity check
+- [ ] `manifest.json`에 툴 버전(gmsh/ccx/blender) 및 파이프라인 버전/임계값 기록(재현성)
+
+### 5단계 — GNN 학습/추론 (미진행)
+- [ ] 그래프 데이터셋 빌드(표면 노드 기준): `x=pos+normal+global_params`, `edge_index`, `y=stress_vm(log-scale 권장)`
+- [ ] `loss_mask` 생성/적용(Root 특이점 대응) + 지표는 `all_nodes`/`masked_nodes` 동시 보고
+- [ ] GraphSAGE baseline 학습 스크립트 + 체크포인트/스플릿/로그 저장(재현 가능)
+- [ ] 단일 케이스 추론 → `wing_pred.glb` 생성(버텍스 컬러) + `wing_error.glb`(abs error) 생성
+
+### 6단계 — Gradio 비교 데모(FEM vs AI) (미진행)
+- [ ] Side-by-Side 뷰: FEM(`wing_result.glb`) vs AI(`wing_pred.glb`)
+- [ ] Error Map 토글: `|FEM-AI|` 시각화(`wing_error.glb`)
+- [ ] Metrics 표시: MAE/RMSE/Max (all_nodes, masked_nodes)
+- [ ] Unified Colorbar: FEM/AI 동일 min/max로 정규화(공정 비교)
+- [ ] 단계 상태머신 노출: `IDLE → GEOMETRY → MESHING → FEM → POSTPROCESS → DONE/FAILED` + `elapsed_ms/message/artifacts`
+
+### 7단계 — 배포(Hugging Face Spaces) (미진행)
+- [ ] Dockerfile 기반 배포 준비(gmsh/ccx/xvfb 포함) + 런타임에서 동작 확인
+- [ ] 기본 UX: pre-computed 샘플 즉시 로드(빈 화면 방지) + 실시간 FEM 제한/안내 문구
 
 ## 8) 수용 기준(Acceptance Criteria)
 - AC1: 파라미터 입력 후 `wing_viz.glb`가 생성되고 Model3D에서 보인다.

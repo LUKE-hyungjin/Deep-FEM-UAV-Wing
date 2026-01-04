@@ -27,13 +27,53 @@ pip install -r requirements.txt
 export BLENDER_BIN="/Applications/Blender.app/Contents/MacOS/Blender"
 ```
 
-### 3) Gradio 앱 실행
+### 3) Gradio 앱 실행 (뷰어)
 
 ```bash
 python app.py
 ```
 
-브라우저에서 `http://127.0.0.1:7860`로 접속하면, 슬라이더로 파라미터를 바꾸고 3D 모델을 확인/다운로드할 수 있습니다.
+브라우저에서 `http://127.0.0.1:7860`로 접속하면, Blender 배치로 생성된 케이스 목록을 선택해 **3D 미리보기(GLB)** / **STL 다운로드** / **로그 확인**을 할 수 있습니다.
+
+## 배치 생성 (데이터셋용: wing 여러 개 만들기)
+
+실제 데이터셋을 쌓으려면 **Blender + 파이썬 스크립트로 케이스를 여러 개 생성**하고, Gradio는 생성된 결과를 확인하는 뷰어로 사용합니다.
+
+### 1) (권장) Blender 경로 지정
+
+```bash
+export BLENDER_BIN="/Applications/Blender.app/Contents/MacOS/Blender"
+```
+
+### 2) N개 케이스 생성(STL + GLB, 캐시 재사용)
+
+```bash
+python scripts/generate_geometry_dataset.py --count 200 --seed 42
+```
+
+- 산출물: `data/raw/geometry/{case_id}/wing.stl`, `wing_viz.glb`, `params.json`, `build_report.json`
+- 인덱스: `data/raw/geometry/params.csv`, `data/raw/manifest.json`
+
+### 2-1) (중요) GLB 정규화/복구(한 번만)
+
+환경에 따라 `wing_viz.glb`가 **바이너리 GLB**가 아니라 **JSON glTF가 `.glb`로 저장**되는 케이스가 있습니다.  
+이 경우 Gradio `Model3D`가 **빈 화면**이 될 수 있으므로, 아래 스크립트를 **한 번 실행**해 기존 산출물을 바이너리 GLB로 복구하세요.
+
+```bash
+python scripts/repair_geometry_glb.py
+```
+
+### 2-1) 생성 결과 확인(Gradio 뷰어)
+
+```bash
+python app.py
+```
+
+### 3) Blender 필수 모드(폴백 금지)
+
+```bash
+python scripts/generate_geometry_dataset.py --count 50 --seed 7 --require_blender
+```
 
 ## 배포 (Hugging Face Spaces 등)
 

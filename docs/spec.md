@@ -152,6 +152,10 @@
   - `File`: **해석용 `.stl` 다운로드(기본)**
   - `Textbox`: 생성 로그(Blender 사용 여부, 소요시간, 에러)
 
+> v0(Week 1) 구현 메모(뷰어 모드):
+> - 이번 단계에서는 `Generate`(형상 생성)는 Gradio에서 직접 수행하지 않고, **Blender 배치 스크립트로 사전 생성(pre-computed)** 한다.
+> - Gradio는 `data/raw/geometry/params.csv(status=success)`에서 케이스 목록을 로드하여, 선택된 `case_id`의 `wing_viz.glb`/`wing.stl`/로그를 확인하는 **뷰어**로 동작한다.
+
 ### 동작 규칙 (PyVista 기반)
 - **Geometry Pipeline**:
   1. Blender 스크립트로 `.stl` 생성
