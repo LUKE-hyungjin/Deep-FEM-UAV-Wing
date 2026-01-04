@@ -1,0 +1,5 @@
+gradio>=5.0.0
+numpy>=1.26.0
+pydantic>=2.7.0
+trimesh>=4.4.0
+pyvista>=0.43.0
