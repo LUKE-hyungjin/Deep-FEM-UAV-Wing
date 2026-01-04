@@ -13,6 +13,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 GEOMETRY_DIR = PROJECT_ROOT / "data" / "raw" / "geometry"
+MESH_DIR = PROJECT_ROOT / "data" / "raw" / "mesh"
 PARAMS_CSV = GEOMETRY_DIR / "params.csv"
 
 
@@ -80,13 +81,14 @@ def handle_refresh():
     return gr.update(choices=choices, value=first_case_id)
 
 
-def handle_select_case(case_id: str | None):
+def handle_select_case(case_id: str | None, preview_mode: str):
     if not case_id:
         return None, None, "선택된 case_id가 없습니다."
 
     case_dir = _case_dir(case_id)
     glb_path = case_dir / "wing_viz.glb"
     stl_path = case_dir / "wing.stl"
+    surf_sets_glb = MESH_DIR / case_id / "surf_sets.glb"
 
     if not glb_path.exists() or not stl_path.exists():
         missing: list[str] = []
@@ -96,18 +98,36 @@ def handle_select_case(case_id: str | None):
             missing.append("wing.stl")
         return None, None, f"필수 산출물이 없습니다: {', '.join(missing)}\n{_format_case_log(case_id)}"
 
-    # Validate GLB magic ('glTF'). If not, Model3D may render blank.
-    head = glb_path.read_bytes()[:4]
+    # Preview selection
+    if preview_mode == "Meshing Debug (surf_sets.glb)":
+        if not surf_sets_glb.exists():
+            return (
+                None,
+                str(stl_path),
+                "Meshing Debug를 선택했지만 `data/raw/mesh/{case_id}/surf_sets.glb`가 없습니다.\n"
+                "해결: `python scripts/generate_mesh_dataset.py --limit 0` 실행 후 Refresh list.\n\n"
+                + _format_case_log(case_id),
+            )
+        preview_path = surf_sets_glb
+    else:
+        preview_path = glb_path
+
+    head = preview_path.read_bytes()[:4]
     if head != b"glTF":
-        return (
-            None,
-            str(stl_path),
+        fix_hint = (
             "wing_viz.glb가 바이너리 GLB가 아닙니다(렌더링이 빈 화면일 수 있음).\n"
             "해결: `python scripts/repair_geometry_glb.py` 실행 후 다시 새로고침하세요.\n\n"
-            + _format_case_log(case_id),
         )
+        if preview_path == surf_sets_glb:
+            fix_hint = (
+                "surf_sets.glb가 바이너리 GLB가 아닙니다(렌더링이 빈 화면일 수 있음).\n"
+                "해결: Meshing을 다시 생성하거나 GLB export 환경을 점검하세요.\n\n"
+            )
+        return None, str(stl_path), fix_hint + _format_case_log(case_id)
 
-    return str(glb_path), str(stl_path), _format_case_log(case_id)
+    base_log = _format_case_log(case_id)
+    header = f"[preview]\nmode={preview_mode}\nfile={preview_path}\n"
+    return str(preview_path), str(stl_path), (header + "\n" + base_log).strip()
 
 
 with gr.Blocks(title="Deep-FEM-UAV-Wing (Week 1)") as demo:
@@ -126,6 +146,12 @@ with gr.Blocks(title="Deep-FEM-UAV-Wing (Week 1)") as demo:
                 value=None,
                 interactive=True,
             )
+            preview_mode = gr.Radio(
+                choices=["Geometry (wing_viz.glb)", "Meshing Debug (surf_sets.glb)"],
+                value="Meshing Debug (surf_sets.glb)",
+                label="Preview Mode",
+                interactive=True,
+            )
             refresh_btn = gr.Button("Refresh list", variant="secondary")
 
         with gr.Column(scale=1):
@@ -134,10 +160,11 @@ with gr.Blocks(title="Deep-FEM-UAV-Wing (Week 1)") as demo:
             log = gr.Textbox(label="Log", lines=16)
 
     refresh_btn.click(fn=handle_refresh, inputs=None, outputs=[case_dropdown])
-    case_dropdown.change(fn=handle_select_case, inputs=[case_dropdown], outputs=[model, stl_file, log])
+    case_dropdown.change(fn=handle_select_case, inputs=[case_dropdown, preview_mode], outputs=[model, stl_file, log])
+    preview_mode.change(fn=handle_select_case, inputs=[case_dropdown, preview_mode], outputs=[model, stl_file, log])
 
     demo.load(fn=handle_refresh, inputs=None, outputs=[case_dropdown]).then(
-        fn=handle_select_case, inputs=[case_dropdown], outputs=[model, stl_file, log]
+        fn=handle_select_case, inputs=[case_dropdown, preview_mode], outputs=[model, stl_file, log]
     )
 
 

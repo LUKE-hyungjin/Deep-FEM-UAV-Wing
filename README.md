@@ -63,7 +63,21 @@ python scripts/generate_geometry_dataset.py --count 200 --seed 42
 python scripts/repair_geometry_glb.py
 ```
 
-### 2-1) 생성 결과 확인(Gradio 뷰어)
+### 2-2) 2단계 Meshing(Gmsh) 배치 생성(선택)
+
+`wing.stl`에서 테트라 볼륨 메쉬 및 경계 셋(`boundary_sets.json`)을 생성합니다.
+
+> 사전 준비: 로컬에 `gmsh`가 설치되어 있어야 합니다.
+> - macOS(Homebrew): `brew install gmsh`
+> - 확인: `gmsh -version`
+
+```bash
+python scripts/generate_mesh_dataset.py --limit 0
+```
+
+- 산출물: `data/raw/mesh/{case_id}/wing.msh`, `boundary_sets.json`, `mesh_report.json`, `surf_sets.glb`(Upper/Root 디버그 시각화)
+
+### 2-3) 생성 결과 확인(Gradio 뷰어)
 
 ```bash
 python app.py
