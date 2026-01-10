@@ -272,12 +272,12 @@
 - [x] GraphSAGE baseline 학습 스크립트 + 체크포인트/스플릿/로그 저장(재현 가능)
 - [x] 단일 케이스 추론 → `wing_pred.glb` 생성(버텍스 컬러) + `wing_error.glb`(abs error) 생성
 
-### 6단계 — Gradio 비교 데모(FEM vs AI) (미진행)
-- [ ] Side-by-Side 뷰: FEM(`wing_result.glb`) vs AI(`wing_pred.glb`)
-- [ ] Error Map 토글: `|FEM-AI|` 시각화(`wing_error.glb`)
-- [ ] Metrics 표시: MAE/RMSE/Max (all_nodes, masked_nodes)
-- [ ] Unified Colorbar: FEM/AI 동일 min/max로 정규화(공정 비교)
-- [ ] 단계 상태머신 노출: `IDLE → GEOMETRY → MESHING → FEM → POSTPROCESS → DONE/FAILED` + `elapsed_ms/message/artifacts`
+### 6단계 — Gradio 비교 데모(FEM vs AI) (완료)
+- [x] Side-by-Side 뷰: FEM(`wing_result.glb`) vs AI(`wing_pred.glb`)
+- [x] Error Map 토글: `|FEM-AI|` 시각화(`wing_error.glb`)
+- [x] Metrics 표시: MAE/RMSE/Max (all_nodes, masked_nodes)
+- [x] Unified Colorbar: FEM/AI 동일 min/max로 정규화(공정 비교)
+- [x] View Mode 선택: Side-by-Side / FEM Only / AI Only / Error Map
 
 ### 7단계 — 배포(Hugging Face Spaces) (미진행)
 - [ ] Dockerfile 기반 배포 준비(gmsh/ccx/xvfb 포함) + 런타임에서 동작 확인

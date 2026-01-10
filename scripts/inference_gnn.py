@@ -59,9 +59,40 @@ def load_model(checkpoint_path: Path, device: torch.device) -> GraphSAGEModel:
     return model
 
 
+def _viridis_rgb(x: np.ndarray) -> np.ndarray:
+    """Viridis-like colormap (same as FEM viz), returns uint8 RGB."""
+    stops = np.array([
+        [0.0000, 68, 1, 84],
+        [0.1250, 72, 40, 120],
+        [0.2500, 62, 74, 137],
+        [0.3750, 49, 104, 142],
+        [0.5000, 38, 130, 142],
+        [0.6250, 31, 158, 137],
+        [0.7500, 53, 183, 121],
+        [0.8750, 109, 205, 89],
+        [1.0000, 253, 231, 37],
+    ], dtype=np.float64)
+
+    t = np.clip(x, 0, 1).flatten()
+    rgb = np.zeros((len(t), 3), dtype=np.uint8)
+    for i in range(len(stops) - 1):
+        t0, r0, g0, b0 = stops[i]
+        t1, r1, g1, b1 = stops[i + 1]
+        mask = (t >= t0) & (t <= t1)
+        if not np.any(mask):
+            continue
+        frac = (t[mask] - t0) / (t1 - t0)
+        rgb[mask, 0] = np.clip(r0 + frac * (r1 - r0), 0, 255).astype(np.uint8)
+        rgb[mask, 1] = np.clip(g0 + frac * (g1 - g0), 0, 255).astype(np.uint8)
+        rgb[mask, 2] = np.clip(b0 + frac * (b1 - b0), 0, 255).astype(np.uint8)
+    return rgb
+
+
 def generate_prediction_glb(
     case_id: str,
     pred_stress: np.ndarray,
+    gt_stress: np.ndarray,
+    loss_mask: np.ndarray,
     surface_npz_path: Path,
     boundary_sets_path: Path,
     out_glb_path: Path,
@@ -70,23 +101,18 @@ def generate_prediction_glb(
 ):
     """Generate wing_pred.glb with AI-predicted stress colors.
 
-    Uses same visualization approach as FEM results.
+    Uses SAME color scale as FEM (unified colorbar for fair comparison).
     """
     try:
         import trimesh
-        from matplotlib import cm
     except ImportError:
-        print("ERROR: trimesh and matplotlib required for GLB generation")
+        print("ERROR: trimesh required for GLB generation")
         return False
 
     # Load surface data
     npz = np.load(surface_npz_path)
-    pos = npz["pos"]
-    disp = npz["disp"]
+    pos = npz["pos"]  # Use original position (no deformation, same as FEM viz)
     boundary_sets = json.loads(boundary_sets_path.read_text(encoding="utf-8"))
-
-    # Apply deformation
-    deformed_pos = pos + disp * deform_scale
 
     # Build surface mesh from faces
     node_ids = npz["node_id"]
@@ -107,22 +133,22 @@ def generate_prediction_glb(
 
     faces = np.array(faces, dtype=np.int32)
 
-    # Color mapping (same as FEM viz)
-    stress_min = pred_stress.min()
-    stress_max = pred_stress.max()
-    if stress_max - stress_min < 1e-10:
-        normalized = np.zeros_like(pred_stress)
-    else:
-        normalized = (pred_stress - stress_min) / (stress_max - stress_min)
+    # UNIFIED color scale: use GT (FEM) stress range with mask (same as FEM viz)
+    # This ensures fair visual comparison between FEM and AI
+    valid_gt = gt_stress[loss_mask] if loss_mask is not None and np.any(loss_mask) else gt_stress
+    vmin = float(np.min(valid_gt)) if valid_gt.size > 0 else 0.0
+    vmax = float(np.percentile(valid_gt, 98)) if valid_gt.size > 0 else 1.0
 
-    # Use jet colormap
-    cmap = cm.get_cmap("jet")
-    colors_float = cmap(normalized)[:, :3]  # RGB only
-    colors_uint8 = (colors_float * 255).astype(np.uint8)
+    denom = max(1e-12, vmax - vmin)
+    normalized = (np.clip(pred_stress, vmin, vmax) - vmin) / denom
 
-    # Create mesh
-    mesh = trimesh.Trimesh(vertices=deformed_pos, faces=faces, process=False)
-    mesh.visual.vertex_colors = np.hstack([colors_uint8, np.full((len(colors_uint8), 1), 255, dtype=np.uint8)])
+    # Use viridis colormap (same as FEM)
+    rgb = _viridis_rgb(normalized)
+    rgba = np.hstack([rgb, np.full((len(rgb), 1), 255, dtype=np.uint8)])
+
+    # Create mesh (use original pos, same as FEM viz)
+    mesh = trimesh.Trimesh(vertices=pos, faces=faces, process=False)
+    mesh.visual.vertex_colors = rgba
 
     # Export
     out_glb_path.parent.mkdir(parents=True, exist_ok=True)
@@ -150,12 +176,8 @@ def generate_error_glb(
 
     # Load surface data
     npz = np.load(surface_npz_path)
-    pos = npz["pos"]
-    disp = npz["disp"]
+    pos = npz["pos"]  # Use original position (no deformation, same as FEM viz)
     boundary_sets = json.loads(boundary_sets_path.read_text(encoding="utf-8"))
-
-    # Apply deformation
-    deformed_pos = pos + disp * deform_scale
 
     # Build surface mesh from faces
     node_ids = npz["node_id"]
@@ -188,8 +210,8 @@ def generate_error_glb(
     colors_float = cmap(normalized)[:, :3]
     colors_uint8 = (colors_float * 255).astype(np.uint8)
 
-    # Create mesh
-    mesh = trimesh.Trimesh(vertices=deformed_pos, faces=faces, process=False)
+    # Create mesh (use original pos, same as FEM viz)
+    mesh = trimesh.Trimesh(vertices=pos, faces=faces, process=False)
     mesh.visual.vertex_colors = np.hstack([colors_uint8, np.full((len(colors_uint8), 1), 255, dtype=np.uint8)])
 
     # Export
@@ -271,6 +293,8 @@ def run_inference(
     pred_ok = generate_prediction_glb(
         case_id=case_id,
         pred_stress=pred_stress,
+        gt_stress=gt_stress,
+        loss_mask=graph_data["loss_mask"],
         surface_npz_path=surface_npz_path,
         boundary_sets_path=boundary_sets_path,
         out_glb_path=pred_glb_path,
