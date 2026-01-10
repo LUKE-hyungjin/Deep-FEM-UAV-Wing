@@ -249,23 +249,22 @@
 - [x] Gradio는 **뷰어 모드**: 케이스 선택 → 3D 미리보기(GLB) + STL 다운로드 + 로그 확인
 - [x] (환경 이슈 대응) 기존 `wing_viz.glb` 복구 스크립트: `scripts/repair_geometry_glb.py`
 
-### 2단계 — Meshing(Gmsh) (미진행)
 ### 2단계 — Meshing(Gmsh) (완료)
 - [x] `wing.stl` → `wing.msh`(테트라 볼륨 메쉬) 생성
 - [x] `boundary_sets.json` 생성: `NROOT`, `SURF_ALL`, `SURF_UPPER` + 면적 통계/검증
 - [x] `mesh_report.json` 생성(시간/품질/실패 사유)
 - [x] (시각 디버그) `surf_sets.glb` 생성(Upper/Root 분리 결과 색상 확인)
 
-### 3단계 — FEM(CalculiX) + Postprocess (미진행)
-- [ ] `.inp` 생성(등가 절점 하중 `*CLOAD`)
-- [ ] `ccx` 실행 → `.frd` 산출
-- [ ] 표면 결과 추출: `surface_results.npz`(pos/normal/stress_vm/disp/loss_mask)
-- [ ] 결과 시각화: `wing_result.glb`(버텍스 컬러 기반)
+### 3단계 — FEM(CalculiX) + Postprocess (완료)
+- [x] `.inp` 생성(등가 절점 하중 `*CLOAD`)
+- [x] `ccx` 실행 → `.frd` 산출
+- [x] 표면 결과 추출: `surface_results.npz`(pos/normal/stress_vm/disp/loss_mask)
+- [x] 결과 시각화: `wing_result.glb`(버텍스 컬러 기반)
 
-### 4단계 — Dataset 누적/검증 (미진행)
-- [ ] 최소 200 solved 케이스 누적(`status=success`), 실패 케이스도 `failure_reason` 구조적으로 기록
-- [ ] 품질 검증 체크리스트 자동화: Root 노드 수, Upper 면적 비율, nan/inf 결과 검출, 스케일 sanity check
-- [ ] `manifest.json`에 툴 버전(gmsh/ccx/blender) 및 파이프라인 버전/임계값 기록(재현성)
+### 4단계 — Dataset 누적/검증 (완료)
+- [x] 최소 200 solved 케이스 누적(`status=success`), 실패 케이스도 `failure_reason` 구조적으로 기록
+- [x] 품질 검증 체크리스트 자동화: Root 노드 수, Upper 면적 비율, nan/inf 결과 검출, 스케일 sanity check
+- [x] `manifest.json`에 툴 버전(gmsh/ccx/blender) 및 파이프라인 버전/임계값 기록(재현성)
 
 ### 5단계 — GNN 학습/추론 (미진행)
 - [ ] 그래프 데이터셋 빌드(표면 노드 기준): `x=pos+normal+global_params`, `edge_index`, `y=stress_vm(log-scale 권장)`
