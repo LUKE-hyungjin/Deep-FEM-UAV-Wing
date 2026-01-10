@@ -266,11 +266,11 @@
 - [x] 품질 검증 체크리스트 자동화: Root 노드 수, Upper 면적 비율, nan/inf 결과 검출, 스케일 sanity check
 - [x] `manifest.json`에 툴 버전(gmsh/ccx/blender) 및 파이프라인 버전/임계값 기록(재현성)
 
-### 5단계 — GNN 학습/추론 (미진행)
-- [ ] 그래프 데이터셋 빌드(표면 노드 기준): `x=pos+normal+global_params`, `edge_index`, `y=stress_vm(log-scale 권장)`
-- [ ] `loss_mask` 생성/적용(Root 특이점 대응) + 지표는 `all_nodes`/`masked_nodes` 동시 보고
-- [ ] GraphSAGE baseline 학습 스크립트 + 체크포인트/스플릿/로그 저장(재현 가능)
-- [ ] 단일 케이스 추론 → `wing_pred.glb` 생성(버텍스 컬러) + `wing_error.glb`(abs error) 생성
+### 5단계 — GNN 학습/추론 (완료)
+- [x] 그래프 데이터셋 빌드(표면 노드 기준): `x=pos+normal+global_params`, `edge_index`, `y=stress_vm(log-scale 권장)`
+- [x] `loss_mask` 생성/적용(Root 특이점 대응) + 지표는 `all_nodes`/`masked_nodes` 동시 보고
+- [x] GraphSAGE baseline 학습 스크립트 + 체크포인트/스플릿/로그 저장(재현 가능)
+- [x] 단일 케이스 추론 → `wing_pred.glb` 생성(버텍스 컬러) + `wing_error.glb`(abs error) 생성
 
 ### 6단계 — Gradio 비교 데모(FEM vs AI) (미진행)
 - [ ] Side-by-Side 뷰: FEM(`wing_result.glb`) vs AI(`wing_pred.glb`)

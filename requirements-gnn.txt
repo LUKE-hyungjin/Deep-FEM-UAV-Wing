@@ -1,0 +1,21 @@
+# Requirements for GNN training (Stage 5)
+# Install PyTorch first from https://pytorch.org/get-started/locally/
+# Then install PyTorch Geometric: https://pytorch-geometric.readthedocs.io/
+
+# Example for CUDA 12.1:
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+# pip install torch-geometric
+
+# Example for CPU only:
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+# pip install torch-geometric
+
+# Core dependencies (already in requirements.txt)
+numpy>=1.26.0
+pydantic>=2.7.0
+trimesh>=4.4.0
+matplotlib>=3.8.0
+
+# PyTorch Geometric (install separately based on your CUDA version)
+# torch>=2.0.0
+# torch-geometric>=2.4.0
