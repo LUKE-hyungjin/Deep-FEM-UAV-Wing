@@ -9,11 +9,19 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
+from numpy.typing import NDArray
 
 from .meshing import _tail, _vec_add, _vec_dot, _vec_scale, _vec_sub, parse_msh2, tri_normal_area  # noqa: PLC2701
 from .viz_results import make_pressure_arrows_meshes, surface_results_to_glb, surface_results_to_glb_with_extras
+
+# Type aliases for clarity
+Vec3 = tuple[float, float, float]
+Vec6 = tuple[float, float, float, float, float, float]
+NodeMap = dict[int, Vec3]
+StressMap = dict[int, Vec6]
 
 
 @dataclass(frozen=True)
@@ -27,7 +35,7 @@ class FemArtifacts:
     pressure_vectors_glb: Path
 
 
-def _write_json(path: Path, payload: dict) -> None:
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -88,8 +96,8 @@ def _format_id_list(ids: list[int], *, per_line: int = 16) -> str:
     return "\n".join(lines)
 
 
-def _compute_c_vol(nodes: dict[int, tuple[float, float, float]]) -> tuple[float, float, float]:
-    acc = (0.0, 0.0, 0.0)
+def _compute_c_vol(nodes: NodeMap) -> Vec3:
+    acc: Vec3 = (0.0, 0.0, 0.0)
     for p in nodes.values():
         acc = _vec_add(acc, p)
     return _vec_scale(acc, 1.0 / max(1, len(nodes)))
@@ -97,10 +105,10 @@ def _compute_c_vol(nodes: dict[int, tuple[float, float, float]]) -> tuple[float,
 
 def compute_equivalent_nodal_loads(
     *,
-    nodes: dict[int, tuple[float, float, float]],
+    nodes: NodeMap,
     surf_upper_faces: list[list[int]],
     pressure_pa: float,
-) -> dict[int, tuple[float, float, float]]:
+) -> dict[int, Vec3]:
     """
     Equivalent nodal forces for uniform pressure on upper faces.
     - outward normal n_hat is computed per face (robustly oriented using C_vol)
@@ -311,16 +319,17 @@ def _parse_frd_section(*, frd_path: Path, section_name: str, ncomp: int) -> dict
     return out
 
 
-def _read_frd_ascii_nodal_results(*, frd_path: Path) -> tuple[dict[int, tuple[float, float, float]], dict[int, tuple[float, float, float, float, float, float]]]:
+def _read_frd_ascii_nodal_results(*, frd_path: Path) -> tuple[NodeMap, StressMap]:
+    """Read displacement and stress data from FRD ASCII file."""
     disp = _parse_frd_section(frd_path=frd_path, section_name="DISP", ncomp=3)
     stress = _parse_frd_section(frd_path=frd_path, section_name="STRESS", ncomp=6)
     # type narrowing
-    disp3 = {k: (float(v[0]), float(v[1]), float(v[2])) for k, v in disp.items()}
-    s6 = {k: (float(v[0]), float(v[1]), float(v[2]), float(v[3]), float(v[4]), float(v[5])) for k, v in stress.items()}
+    disp3: NodeMap = {k: (float(v[0]), float(v[1]), float(v[2])) for k, v in disp.items()}
+    s6: StressMap = {k: (float(v[0]), float(v[1]), float(v[2]), float(v[3]), float(v[4]), float(v[5])) for k, v in stress.items()}
     return disp3, s6
 
 
-def _stress_to_von_mises(stress: np.ndarray) -> np.ndarray:
+def _stress_to_von_mises(stress: NDArray[np.float64]) -> NDArray[np.float64]:
     """
     Convert stress components to von Mises.
     Supports:
@@ -379,10 +388,11 @@ def _map_by_quantized_points(
 
 
 def _compute_surface_normals(
-    *, nodes: dict[int, tuple[float, float, float]], surf_all_faces: list[list[int]]
-) -> dict[int, tuple[float, float, float]]:
+    *, nodes: NodeMap, surf_all_faces: list[list[int]]
+) -> NodeMap:
+    """Compute area-weighted average normals for surface nodes."""
     c_vol = _compute_c_vol(nodes)
-    acc: dict[int, tuple[float, float, float]] = {}
+    acc: dict[int, Vec3] = {}
 
     for face in surf_all_faces:
         if len(face) != 3:
@@ -404,7 +414,7 @@ def _compute_surface_normals(
             acc[nid] = _vec_add(prev, n_w)
 
     # normalize
-    out: dict[int, tuple[float, float, float]] = {}
+    out: NodeMap = {}
     for nid, v in acc.items():
         norm = math.sqrt(_vec_dot(v, v))
         if norm <= 0.0:
@@ -424,13 +434,22 @@ def run_fem_case(
     poisson_ratio: float = 0.33,
     pressure_pa: float = 5e3,
     timeout_s: int = 900,
-) -> tuple[bool, dict, FemArtifacts | None]:
+) -> tuple[bool, dict[str, Any], FemArtifacts | None]:
     """
-    Stage 3:
-    - Read mesh artifacts
-    - Write CalculiX .inp (C3D4 + Nroot + CLOAD from SURF_UPPER)
-    - Run ccx
-    - Postprocess to surface_results.npz and wing_result.glb (via ccx2paraview + mapping)
+    Stage 3: Run CalculiX FEM analysis.
+
+    Args:
+        case_id: Unique case identifier
+        geometry_dir: Path to geometry data directory
+        mesh_dir: Path to mesh data directory
+        fem_dir: Path to FEM output directory
+        young_modulus_pa: Young's modulus in Pascal (default: 69 GPa for AL6061)
+        poisson_ratio: Poisson's ratio (default: 0.33 for AL6061)
+        pressure_pa: Uniform pressure on upper surface in Pascal
+        timeout_s: Solver timeout in seconds
+
+    Returns:
+        Tuple of (success, report_dict, artifacts_or_none)
     """
     start = time.perf_counter()
 
@@ -447,8 +466,10 @@ def run_fem_case(
     # Parse mesh
     try:
         nodes, _triangles, tets = parse_msh2(wing_msh)
-    except Exception as e:  # noqa: BLE001
+    except ValueError as e:
         return False, {"status": "failed", "failure_reason": f"msh parse failed: {e}"}, None
+    except (OSError, IOError) as e:
+        return False, {"status": "failed", "failure_reason": f"msh file read error: {e}"}, None
 
     try:
         boundary_sets = json.loads(boundary_sets_json.read_text(encoding="utf-8"))
@@ -456,8 +477,12 @@ def run_fem_case(
         surf_all_faces = boundary_sets.get("surf_all_faces") or []
         surf_upper_faces = boundary_sets.get("surf_upper_faces") or []
         y_tol = float(boundary_sets.get("y_tol") or 1e-4)
-    except Exception as e:  # noqa: BLE001
-        return False, {"status": "failed", "failure_reason": f"boundary_sets.json invalid: {e}"}, None
+    except json.JSONDecodeError as e:
+        return False, {"status": "failed", "failure_reason": f"boundary_sets.json invalid JSON: {e}"}, None
+    except (KeyError, TypeError, ValueError) as e:
+        return False, {"status": "failed", "failure_reason": f"boundary_sets.json data error: {e}"}, None
+    except (OSError, IOError) as e:
+        return False, {"status": "failed", "failure_reason": f"boundary_sets.json read error: {e}"}, None
 
     if not nroot_node_ids:
         return False, {"status": "failed", "failure_reason": "NROOT empty"}, None
@@ -490,8 +515,10 @@ def run_fem_case(
             young_modulus_pa=young_modulus_pa,
             poisson_ratio=poisson_ratio,
         )
-    except Exception as e:  # noqa: BLE001
-        return False, {"status": "failed", "failure_reason": f"inp generation failed: {e}"}, None
+    except (OSError, IOError) as e:
+        return False, {"status": "failed", "failure_reason": f"inp file write error: {e}"}, None
+    except (ValueError, TypeError) as e:
+        return False, {"status": "failed", "failure_reason": f"inp generation data error: {e}"}, None
 
     # Run ccx
     cmd = [ccx_bin, "-i", job_name]
@@ -504,10 +531,18 @@ def run_fem_case(
             timeout=timeout_s,
             check=False,
         )
-    except Exception as e:  # noqa: BLE001
+    except subprocess.TimeoutExpired:
         report = {
             "status": "failed",
-            "failure_reason": f"ccx execution failed: {e}",
+            "failure_reason": f"ccx timeout after {timeout_s}s",
+            "elapsed_ms": int((time.perf_counter() - start) * 1000),
+        }
+        _write_json(fem_report_json, report)
+        return False, report, None
+    except OSError as e:
+        report = {
+            "status": "failed",
+            "failure_reason": f"ccx execution OS error: {e}",
             "elapsed_ms": int((time.perf_counter() - start) * 1000),
         }
         _write_json(fem_report_json, report)
@@ -540,19 +575,31 @@ def run_fem_case(
 
     # Postprocess: prefer direct FRD ASCII parsing (no extra tools),
     # fallback to ccx2paraview if available.
+    frd_parse_error: str | None = None
     try:
         disp_map, stress_map = _read_frd_ascii_nodal_results(frd_path=frd_path)
-    except Exception as e:  # noqa: BLE001
+    except RuntimeError as e:
+        frd_parse_error = str(e)
         # fallback to ccx2paraview (if installed)
         try:
             pts, disp, stress = _read_ccx2paraview_results(work_dir=case_fem_dir, job_name=job_name)
             disp_map = {i + 1: (float(disp[i, 0]), float(disp[i, 1]), float(disp[i, 2])) for i in range(disp.shape[0])}
             stress_vm = _stress_to_von_mises(stress)
             stress_map = {i + 1: (float(stress[i, 0]), float(stress[i, 1]), float(stress[i, 2]), float(stress[i, 3]), float(stress[i, 4]), float(stress[i, 5])) for i in range(stress.shape[0])}
-        except Exception as e2:  # noqa: BLE001
+        except RuntimeError as e2:
             report = {
                 "status": "failed",
-                "failure_reason": f"postprocess failed: frd_ascii={e} ccx2paraview={e2}",
+                "failure_reason": f"postprocess failed: frd_ascii={frd_parse_error} ccx2paraview={e2}",
+                "elapsed_ms": int((time.perf_counter() - start) * 1000),
+                "stdout_tail": stdout_tail,
+                "stderr_tail": stderr_tail,
+            }
+            _write_json(fem_report_json, report)
+            return False, report, None
+        except ImportError as e2:
+            report = {
+                "status": "failed",
+                "failure_reason": f"postprocess failed: frd_ascii={frd_parse_error}, pyvista not available: {e2}",
                 "elapsed_ms": int((time.perf_counter() - start) * 1000),
                 "stdout_tail": stdout_tail,
                 "stderr_tail": stderr_tail,
@@ -568,6 +615,20 @@ def run_fem_case(
     surface_disp = np.asarray([disp_map.get(nid, (0.0, 0.0, 0.0)) for nid in surface_node_ids], dtype=np.float64)
     surface_stress6 = np.asarray([stress_map.get(nid, (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)) for nid in surface_node_ids], dtype=np.float64)
     surface_vm = _stress_to_von_mises(surface_stress6)
+
+    # Validate results: check for nan/inf
+    has_nan_disp = bool(np.any(np.isnan(surface_disp)) or np.any(np.isinf(surface_disp)))
+    has_nan_stress = bool(np.any(np.isnan(surface_vm)) or np.any(np.isinf(surface_vm)))
+    if has_nan_disp or has_nan_stress:
+        report = {
+            "status": "failed",
+            "failure_reason": f"invalid results: nan/inf detected (disp={has_nan_disp}, stress={has_nan_stress})",
+            "elapsed_ms": int((time.perf_counter() - start) * 1000),
+            "stdout_tail": stdout_tail,
+            "stderr_tail": stderr_tail,
+        }
+        _write_json(fem_report_json, report)
+        return False, report, None
 
     # Normals on surface
     normals_map = _compute_surface_normals(nodes=nodes, surf_all_faces=surf_all_faces)
@@ -655,6 +716,30 @@ def run_fem_case(
             "surface_nodes": len(surface_node_ids),
             "min_stress_vm": float(np.min(surface_vm)) if surface_vm.size else 0.0,
             "max_stress_vm": float(np.max(surface_vm)) if surface_vm.size else 0.0,
+            "mean_stress_vm": float(np.mean(surface_vm)) if surface_vm.size else 0.0,
+            "min_disp_mag": float(np.min(np.linalg.norm(surface_disp, axis=1))) if surface_disp.size else 0.0,
+            "max_disp_mag": float(np.max(np.linalg.norm(surface_disp, axis=1))) if surface_disp.size else 0.0,
+            "mean_disp_z": float(np.mean(surface_disp[:, 2])) if surface_disp.size else 0.0,
+        },
+        "metrics_all_nodes": {
+            "count": int(surface_vm.size),
+            "stress_min": float(np.min(surface_vm)) if surface_vm.size else 0.0,
+            "stress_max": float(np.max(surface_vm)) if surface_vm.size else 0.0,
+            "stress_mean": float(np.mean(surface_vm)) if surface_vm.size else 0.0,
+            "stress_std": float(np.std(surface_vm)) if surface_vm.size else 0.0,
+            "stress_p50": float(np.percentile(surface_vm, 50)) if surface_vm.size else 0.0,
+            "stress_p95": float(np.percentile(surface_vm, 95)) if surface_vm.size else 0.0,
+            "stress_p99": float(np.percentile(surface_vm, 99)) if surface_vm.size else 0.0,
+        },
+        "metrics_masked_nodes": {
+            "count": int(np.sum(loss_mask)),
+            "stress_min": float(np.min(surface_vm[loss_mask])) if np.any(loss_mask) else 0.0,
+            "stress_max": float(np.max(surface_vm[loss_mask])) if np.any(loss_mask) else 0.0,
+            "stress_mean": float(np.mean(surface_vm[loss_mask])) if np.any(loss_mask) else 0.0,
+            "stress_std": float(np.std(surface_vm[loss_mask])) if np.any(loss_mask) else 0.0,
+            "stress_p50": float(np.percentile(surface_vm[loss_mask], 50)) if np.any(loss_mask) else 0.0,
+            "stress_p95": float(np.percentile(surface_vm[loss_mask], 95)) if np.any(loss_mask) else 0.0,
+            "stress_p99": float(np.percentile(surface_vm[loss_mask], 99)) if np.any(loss_mask) else 0.0,
         },
         "surface_mask": {
             "loss_mask_true": int(np.sum(loss_mask)),

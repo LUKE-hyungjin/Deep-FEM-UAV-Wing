@@ -293,9 +293,12 @@ def make_pressure_arrows_meshes(
         if float(np.dot(n_hat, cf - c_vol)) < 0:
             n_hat = -n_hat
 
-        # pressure direction is inward
-        d = -n_hat
-        arrows.append(_make_arrow_trimesh(origin=cf, direction=d, length=arrow_len, radius=radius))
+        # Pressure visualization: arrow starts ABOVE the surface and points INWARD (toward surface)
+        # This shows "pressure pushing down on the surface"
+        # origin = face center + outward offset, direction = inward (-n_hat)
+        arrow_origin = cf + n_hat * arrow_len  # Start above the surface
+        d = -n_hat  # Point inward (toward surface)
+        arrows.append(_make_arrow_trimesh(origin=arrow_origin, direction=d, length=arrow_len, radius=radius))
 
     return arrows
 

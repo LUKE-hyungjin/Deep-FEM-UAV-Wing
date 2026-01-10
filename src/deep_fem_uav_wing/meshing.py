@@ -8,6 +8,7 @@ import time
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -24,7 +25,7 @@ def _tail(text: str, *, max_chars: int = 4000) -> str:
     return text[-max_chars:]
 
 
-def _write_json(path: Path, payload: dict) -> None:
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -311,13 +312,13 @@ def build_boundary_sets(
     triangles: list[tuple[int, int, int]],
     y_tol: float = 1e-4,
     nz_min: float = 0.2,
-) -> tuple[dict, str]:
+) -> tuple[dict[str, Any], str]:
     # Robustly orient triangles to point outward
     consistent_triangles = orient_surface_consistently(nodes, triangles)
 
     nroot = [nid for nid, p in nodes.items() if p[1] <= y_tol]
 
-    def classify(nz_threshold: float) -> tuple[list[list[int]], list[list[int]], dict]:
+    def classify(nz_threshold: float) -> tuple[list[list[int]], list[list[int]], dict[str, Any]]:
         surf_all_faces: list[list[int]] = []
         surf_upper_faces: list[list[int]] = []
         surf_all_area = 0.0
@@ -458,7 +459,7 @@ def build_surf_sets_glb(
     *,
     nodes: dict[int, tuple[float, float, float]],
     triangles: list[tuple[int, int, int]],
-    boundary_sets: dict,
+    boundary_sets: dict[str, Any],
     out_glb: Path,
 ) -> None:
     """
@@ -512,6 +513,92 @@ def build_surf_sets_glb(
     out_glb.write_bytes(scene.export(file_type="glb"))
 
 
+def compute_tet_quality(
+    nodes: dict[int, tuple[float, float, float]],
+    tets: list[tuple[int, int, int, int]],
+) -> dict[str, float]:
+    """
+    Compute tetrahedron mesh quality metrics.
+    Returns min/mean/max of aspect ratio (ideal=1.0, higher=worse).
+    Aspect ratio = longest_edge / (shortest_altitude * sqrt(6))
+    For a regular tetrahedron, aspect ratio = 1.0.
+    """
+    if not tets:
+        return {"min_aspect_ratio": 0.0, "mean_aspect_ratio": 0.0, "max_aspect_ratio": 0.0, "quality_ok_ratio": 0.0}
+
+    aspect_ratios: list[float] = []
+
+    for (n0, n1, n2, n3) in tets:
+        if n0 not in nodes or n1 not in nodes or n2 not in nodes or n3 not in nodes:
+            continue
+        p0, p1, p2, p3 = nodes[n0], nodes[n1], nodes[n2], nodes[n3]
+
+        # Compute all 6 edge lengths
+        edges = [
+            _vec_norm(_vec_sub(p1, p0)),
+            _vec_norm(_vec_sub(p2, p0)),
+            _vec_norm(_vec_sub(p3, p0)),
+            _vec_norm(_vec_sub(p2, p1)),
+            _vec_norm(_vec_sub(p3, p1)),
+            _vec_norm(_vec_sub(p3, p2)),
+        ]
+        max_edge = max(edges)
+        min_edge = min(edges)
+
+        if min_edge <= 1e-15:
+            aspect_ratios.append(1e6)  # degenerate
+            continue
+
+        # Compute volume using scalar triple product
+        v01 = _vec_sub(p1, p0)
+        v02 = _vec_sub(p2, p0)
+        v03 = _vec_sub(p3, p0)
+        cross = _vec_cross(v01, v02)
+        volume = abs(_vec_dot(cross, v03)) / 6.0
+
+        if volume <= 1e-20:
+            aspect_ratios.append(1e6)  # degenerate
+            continue
+
+        # Compute inscribed sphere radius (inradius)
+        # For tetrahedron: r = 3V / A (total surface area)
+        # Surface area = sum of 4 triangle areas
+        def tri_area(a: tuple[float, float, float], b: tuple[float, float, float], c: tuple[float, float, float]) -> float:
+            _, area = tri_normal_area(a, b, c)
+            return area
+
+        total_area = tri_area(p0, p1, p2) + tri_area(p0, p1, p3) + tri_area(p0, p2, p3) + tri_area(p1, p2, p3)
+        if total_area <= 1e-20:
+            aspect_ratios.append(1e6)
+            continue
+
+        inradius = 3.0 * volume / total_area
+
+        # Aspect ratio: max_edge / (inradius * 2 * sqrt(6)) for regular tet normalization
+        # For a regular tetrahedron: aspect_ratio ≈ 1.0
+        ar = max_edge / (inradius * 2.0 * math.sqrt(6.0)) if inradius > 1e-15 else 1e6
+        aspect_ratios.append(ar)
+
+    if not aspect_ratios:
+        return {"min_aspect_ratio": 0.0, "mean_aspect_ratio": 0.0, "max_aspect_ratio": 0.0, "quality_ok_ratio": 0.0}
+
+    # Quality threshold: aspect ratio < 3.0 is considered "good"
+    quality_ok = sum(1 for ar in aspect_ratios if ar < 3.0)
+
+    return {
+        "min_aspect_ratio": float(min(aspect_ratios)),
+        "mean_aspect_ratio": float(sum(aspect_ratios) / len(aspect_ratios)),
+        "max_aspect_ratio": float(max(aspect_ratios)),
+        "quality_ok_ratio": float(quality_ok / len(aspect_ratios)),
+    }
+
+
+# Mesh guardrail constants
+MAX_NODES = 500_000
+MAX_TETS = 2_500_000
+MIN_QUALITY_OK_RATIO = 0.8  # At least 80% of tets should have aspect ratio < 3.0
+
+
 def run_meshing_case(
     *,
     case_id: str,
@@ -520,6 +607,9 @@ def run_meshing_case(
     y_tol: float = 1e-4,
     nz_min: float = 0.2,
     mesh_size_factor: float = 0.1,
+    max_nodes: int = MAX_NODES,
+    max_tets: int = MAX_TETS,
+    min_quality_ratio: float = MIN_QUALITY_OK_RATIO,
 ) -> tuple[bool, dict, str]:
     """
     Creates:
@@ -563,14 +653,11 @@ def run_meshing_case(
 
     try:
         nodes, triangles, tets = parse_msh2(artifacts.wing_msh)
-        boundary_sets, note = build_boundary_sets(nodes=nodes, triangles=triangles, y_tol=y_tol, nz_min=nz_min)
-        _write_json(artifacts.boundary_sets_json, boundary_sets)
-        build_surf_sets_glb(nodes=nodes, triangles=triangles, boundary_sets=boundary_sets, out_glb=artifacts.surf_sets_glb)
-    except Exception as e:  # noqa: BLE001
+    except ValueError as e:
         elapsed_ms = int((time.perf_counter() - start) * 1000)
         report = {
             "status": "failed",
-            "failure_reason": f"postprocess failed: {e}",
+            "failure_reason": f"mesh parse failed: {e}",
             "elapsed_ms": elapsed_ms,
             "stdout_tail": stdout_tail,
             "stderr_tail": stderr_tail,
@@ -579,12 +666,72 @@ def run_meshing_case(
         _write_json(artifacts.mesh_report_json, report)
         return False, report, str(e)
 
+    # Mesh guardrails: check node/element counts
+    if len(nodes) > max_nodes:
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        report = {
+            "status": "failed",
+            "failure_reason": f"mesh too large: {len(nodes)} nodes > {max_nodes} limit",
+            "elapsed_ms": elapsed_ms,
+            "stdout_tail": stdout_tail,
+            "stderr_tail": stderr_tail,
+            "stats": {"nodes": len(nodes), "tets": len(tets), "tris": len(triangles)},
+            "artifacts": [str(p) for p in artifacts.__dict__.values() if Path(p).exists()],
+        }
+        _write_json(artifacts.mesh_report_json, report)
+        return False, report, report["failure_reason"]
+
+    if len(tets) > max_tets:
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        report = {
+            "status": "failed",
+            "failure_reason": f"mesh too large: {len(tets)} tets > {max_tets} limit",
+            "elapsed_ms": elapsed_ms,
+            "stdout_tail": stdout_tail,
+            "stderr_tail": stderr_tail,
+            "stats": {"nodes": len(nodes), "tets": len(tets), "tris": len(triangles)},
+            "artifacts": [str(p) for p in artifacts.__dict__.values() if Path(p).exists()],
+        }
+        _write_json(artifacts.mesh_report_json, report)
+        return False, report, report["failure_reason"]
+
+    # Compute mesh quality metrics
+    quality_metrics = compute_tet_quality(nodes, tets)
+
+    # Check quality guardrail (warning only, don't fail)
+    quality_warning = ""
+    if quality_metrics["quality_ok_ratio"] < min_quality_ratio:
+        quality_warning = (
+            f"mesh quality warning: only {quality_metrics['quality_ok_ratio']*100:.1f}% of tets have "
+            f"aspect ratio < 3.0 (threshold: {min_quality_ratio*100:.0f}%)"
+        )
+
+    try:
+        boundary_sets, note = build_boundary_sets(nodes=nodes, triangles=triangles, y_tol=y_tol, nz_min=nz_min)
+        _write_json(artifacts.boundary_sets_json, boundary_sets)
+        build_surf_sets_glb(nodes=nodes, triangles=triangles, boundary_sets=boundary_sets, out_glb=artifacts.surf_sets_glb)
+    except ValueError as e:
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        report = {
+            "status": "failed",
+            "failure_reason": f"boundary sets failed: {e}",
+            "elapsed_ms": elapsed_ms,
+            "stdout_tail": stdout_tail,
+            "stderr_tail": stderr_tail,
+            "stats": {"nodes": len(nodes), "tets": len(tets), "tris": len(triangles)},
+            "quality": quality_metrics,
+            "artifacts": [str(p) for p in artifacts.__dict__.values() if Path(p).exists()],
+        }
+        _write_json(artifacts.mesh_report_json, report)
+        return False, report, str(e)
+
     elapsed_ms = int((time.perf_counter() - start) * 1000)
+    notes_combined = "\n".join(filter(None, [note, quality_warning])).strip()
     report = {
         "status": "success",
         "failure_reason": None,
         "elapsed_ms": elapsed_ms,
-        "stdout_tail": (stdout_tail + ("\n" + note if note else "")).strip() or None,
+        "stdout_tail": (stdout_tail + ("\n" + notes_combined if notes_combined else "")).strip() or None,
         "stderr_tail": stderr_tail.strip() or None,
         "stats": {
             "nodes": len(nodes),
@@ -592,6 +739,13 @@ def run_meshing_case(
             "tris": len(triangles),
             "nroot_count": boundary_sets["stats"]["nroot_count"],
             "surf_upper_ratio": boundary_sets["stats"]["surf_upper_ratio"],
+        },
+        "quality": quality_metrics,
+        "guardrails": {
+            "max_nodes": max_nodes,
+            "max_tets": max_tets,
+            "min_quality_ratio": min_quality_ratio,
+            "quality_warning": quality_warning or None,
         },
         "artifacts": [str(p) for p in artifacts.__dict__.values() if Path(p).exists()],
     }
