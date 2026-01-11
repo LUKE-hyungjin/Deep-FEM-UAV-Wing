@@ -1,9 +1,23 @@
+# Virtual environment
 .venv/
+
+# Python cache
 __pycache__/
 *.pyc
+
+# OS files
 .DS_Store
+
+# Full data (not for deployment)
 data/
+
+# Reports
 reports/
-*.glb
-*.stl
+
+# Checkpoints (model weights)
 checkpoints/
+
+# Keep demo_data for deployment
+demo_data/
+
+docs/
